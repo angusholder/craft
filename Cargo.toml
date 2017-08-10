@@ -1,0 +1,25 @@
+[package]
+name = "craft"
+version = "0.1.0"
+authors = ["Angus Holder <aholder97@gmail.com>"]
+
+[dependencies]
+cgmath = "*"
+env_logger = "0.4"
+fnv = "*"
+image = { version = "*", features = [ "png" ] }
+imgui = "*"
+imgui-glium-renderer = "*"
+glium = "*"
+lazy_static = "*"
+log = "0.3"
+#luajit-sys = "*"
+#noise = "*"
+rusqlite = { version = "*", features = ["bundled"] }
+
+serde_derive = "1.0"
+serde = "1.0"
+toml = "*"
+
+deflate = "*"
+inflate = "*"
