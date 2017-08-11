@@ -25,8 +25,8 @@ pub const VECTOR3_BACKWARD: Vector3 = Vector3 { x: 0.0, y: 0.0, z: 1.0 };
 
 use cgmath;
 pub type Coord = cgmath::Point3<i32>;
-pub type Vector3 = cgmath::Vector3<f32>;
-pub use cgmath::{ Deg, Rad, Matrix3, Matrix4, Point3 };
+pub type Vector3<T=f32> = cgmath::Vector3<T>;
+pub use cgmath::{ Deg, Rad, Matrix3, Matrix4, Point3, Point2 };
 
 pub fn chunk_to_block() {}
 pub fn block_to_chunk() {}
@@ -51,6 +51,20 @@ pub enum Side {
     Back,
 }
 
+impl Side {
+    pub fn from_vector(point: Vector3<i32>) -> Option<Side> {
+        match point {
+            Vector3 { x: 0, y: 1, z: 0 } => Some(Side::Top),
+            Vector3 { x: 0, y:-1, z: 0 } => Some(Side::Bottom),
+            Vector3 { x:-1, y: 0, z: 0 } => Some(Side::Left),
+            Vector3 { x: 1, y: 0, z: 0 } => Some(Side::Right),
+            Vector3 { x: 0, y: 0, z: 1 } => Some(Side::Front),
+            Vector3 { x: 0, y: 0, z:-1 } => Some(Side::Back),
+            _ => None
+        }
+    }
+}
+
 pub enum Direction {
     Up,
     Down,
@@ -58,6 +72,14 @@ pub enum Direction {
     Right,
     Forward,
     Backward,
+}
+
+pub fn point3_floor(point: Point3<f32>) -> Point3<i32> {
+    Point3 {
+        x: point.x.floor() as i32,
+        y: point.y.floor() as i32,
+        z: point.z.floor() as i32,
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -110,5 +132,27 @@ impl Sub for ChunkCoord {
 
     fn sub(self, rhs: Self) -> Self::Output {
         ChunkCoord::new(self.x - rhs.x, self.z - rhs.z)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Color {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+impl Color {
+    pub fn new(r: u8, g: u8, b: u8, a: u8) -> Color {
+        Color { r, g, b, a }
+    }
+}
+
+use glium::vertex::{ Attribute, AttributeType };
+
+unsafe impl Attribute for Color {
+    fn get_type() -> AttributeType {
+        AttributeType::U8U8U8U8
     }
 }

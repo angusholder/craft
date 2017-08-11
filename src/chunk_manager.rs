@@ -14,7 +14,7 @@ use glium::texture::{ RawImage2d, SrgbTexture2d };
 use image;
 
 use block::Block;
-use chunk::{ Chunk, EMPTY_CHUNK, CHUNK_SIDE_LENGTH };
+use chunk::{ Chunk, EMPTY_CHUNK, CHUNK_SIDE_LENGTH_MASK };
 use chunk_loader::ChunkLoader;
 use chunk_generator::ChunkGenerator;
 use chunk_mesher::ChunkMesher;
@@ -203,8 +203,7 @@ impl ChunkManager {
         for (coord, mesh) in self.chunk_mesher.iter_meshed() {
             let state = self.chunk_states.get_mut(coord);
             match *state {
-                Ready | Unmeshed => unreachable!(),
-                Meshing => {
+                Ready | Unmeshed | Meshing => {
                     let vbuf = VertexBuffer::new(display, &mesh).unwrap();
                     self.chunk_vbufs.insert(coord, vbuf);
                     *state = ChunkState::Ready;
@@ -225,7 +224,7 @@ impl ChunkManager {
         })
     }
 
-    pub fn render(&mut self, frame: &mut Frame, screen_from_world: &Matrix4<f32>) {
+    pub fn render(&mut self, frame: &mut Frame, clip_from_world: &Matrix4<f32>) {
         let draw_params = DrawParameters {
             depth: Depth {
                 test: DepthTest::IfLess,
@@ -243,7 +242,7 @@ impl ChunkManager {
             .magnify_filter(MagnifySamplerFilter::Nearest);
         for (chunk_coord, vbuf) in self.chunk_vbufs.iter() {
             let uniforms = uniform! {
-                uWorldToScreen: Into::<[[f32; 4]; 4]>::into(*screen_from_world),
+                uWorldToScreen: Into::<[[f32; 4]; 4]>::into(*clip_from_world),
                 uChunkOffset: *chunk_coord,
                 tBlocks: texture,
             };
@@ -252,7 +251,7 @@ impl ChunkManager {
         }
     }
 
-    pub fn get_chunk(&mut self, coord: ChunkCoord) -> &Chunk {
+    pub fn get_chunk(&self, coord: ChunkCoord) -> &Chunk {
         if let Some(chunk) = self.chunks.get(&coord) {
             chunk
         } else {
@@ -260,18 +259,27 @@ impl ChunkManager {
         }
     }
 
-    pub fn get_chunk_mut(&mut self, coord: ChunkCoord) -> Option<&mut Chunk> {
-        if let Some(chunk) = self.chunks.get_mut(&coord) {
-            Some(chunk)
-        } else {
-            None
-        }
-    }
-
-    pub fn get_block(&mut self, coord: Coord) -> Block {
+    pub fn get_block(&self, coord: Coord) -> Block {
         let chunk_coord = ChunkCoord::from_world_pos(coord);
         let chunk = self.get_chunk(chunk_coord);
-        chunk.get(Coord::new(coord.x % (CHUNK_SIDE_LENGTH as i32), coord.y, coord.z % (CHUNK_SIDE_LENGTH as i32)))
+        chunk.get(Coord {
+            x: coord.x & (CHUNK_SIDE_LENGTH_MASK as i32),
+            y: coord.y,
+            z: coord.z & (CHUNK_SIDE_LENGTH_MASK as i32)
+        })
+    }
+
+    pub fn set_block(&mut self, coord: Coord, block: Block) {
+        let chunk_coord = ChunkCoord::from_world_pos(coord);
+        if let Some(chunk) = self.chunks.get_mut(&chunk_coord) {
+            chunk.set(Coord {
+                x: coord.x & (CHUNK_SIDE_LENGTH_MASK as i32),
+                y: coord.y,
+                z: coord.z & (CHUNK_SIDE_LENGTH_MASK as i32)
+            }, block);
+            self.chunk_states.set(chunk_coord, ChunkState::Meshing);
+            self.chunk_mesher.start_meshing(chunk_coord, chunk);
+        }
     }
 
     pub fn get_chunk_state(&self, coord: ChunkCoord) -> ChunkState {

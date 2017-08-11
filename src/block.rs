@@ -23,6 +23,14 @@ pub enum BlockType {
     Sandstone,
 }
 
+impl Block {
+    pub fn new(ty: BlockType) -> Block {
+        Block {
+            ty
+        }
+    }
+}
+
 impl Default for BlockType {
     fn default() -> BlockType {
         BlockType::Air

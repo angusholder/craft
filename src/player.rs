@@ -73,7 +73,7 @@ impl Iterator for ChunksInRange {
 impl Camera {
     pub fn chunks_in_range(&self) -> ChunksInRange {
         let range = ChunkCoord::new(SETTINGS.chunk_render_distance, SETTINGS.chunk_render_distance);
-        let center_chunk = ChunkCoord::from_world_pos(self.pos.cast());
+        let center_chunk = ChunkCoord::from_world_pos(point3_floor(self.pos));
         let min_chunk = center_chunk - range;
         let max_chunk = center_chunk + range;
 
@@ -111,27 +111,33 @@ impl Camera {
             self.v_angle = MIN_V_ANGLE;
         }
     }
-}
 
-pub fn raytrace(chunks: &mut ChunkManager, pos: Point3<f32>, dir: Vector3, max_distance: f32) -> Option<(Coord, Block)> {
-    const RESOLUTION: f32 = 0.01;
-    let diff = dir.normalize() * RESOLUTION;
-    let steps = (max_distance / RESOLUTION) as usize;
+    pub fn raycast(&self, chunks: &mut ChunkManager, max_distance: f32, step_size: f32, return_last_empty_coord: bool) -> Option<(Coord, Block)> {
+        let diff = self.view().normalize() * step_size;
+        let steps = (max_distance / step_size) as usize;
 
-    let mut cur = pos;
-    let mut cur_coord: Point3<i32> = cur.cast();
+        let mut cur = self.pos;
+        let mut cur_coord: Point3<i32> = point3_floor(cur);
 
-    for _ in 0..steps {
-        cur += diff;
-        let next_coord: Point3<i32> = cur.cast();
-        if next_coord != cur_coord {
-            let block = chunks.get_block(next_coord);
-            if !block.is_air() {
-                return Some((next_coord, block));
+        for _ in 0..steps {
+            cur += diff;
+            let next_coord: Point3<i32> = point3_floor(cur);
+            if next_coord != cur_coord {
+                let block = chunks.get_block(next_coord);
+                if !block.is_air() {
+//                    let last_step = next_coord - cur_coord;
+//                    let side = Side::from_vector(last_step).unwrap();
+                    if return_last_empty_coord {
+                        return Some((cur_coord, block));
+                    } else {
+                        return Some((next_coord, block));
+                    }
+                }
+                cur_coord = next_coord;
             }
-            cur_coord = next_coord;
         }
-    }
 
-    None
+        None
+    }
 }
+

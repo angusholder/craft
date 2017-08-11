@@ -34,6 +34,7 @@ mod chunk_generator;
 mod chunk_loader;
 mod chunk_manager;
 mod craft;
+mod line_renderer;
 mod math;
 mod chunk_mesher;
 mod player;

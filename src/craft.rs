@@ -9,11 +9,13 @@ use glium::glutin;
 use glium::glutin::{ Event, WindowEvent, KeyboardInput, VirtualKeyCode, CursorState, AxisId };
 use glium::glutin::{ ElementState, MouseScrollDelta, MouseButton, MouseCursor, DeviceEvent };
 use glium::index::PrimitiveType;
-use imgui::{ ImGui, ImGuiKey };
+use imgui::{ ImStr, ImGui, ImGuiKey };
 use imgui_glium_renderer::Renderer as ImGuiRenderer;
 use toml;
 
+use block::{ BlockType, Block };
 use chunk_manager::ChunkManager;
+use line_renderer::LineRenderer;
 use math::*;
 use player::Player;
 use utils::*;
@@ -28,6 +30,7 @@ pub struct Craft {
     show_debug: bool,
     keys: [bool; VirtualKeyCode::Yen as usize],
 
+    line_renderer: LineRenderer,
     chunk_manager: ChunkManager,
     tick: u64,
     player: Player,
@@ -169,7 +172,7 @@ impl Craft {
 
             let mut frame = display.draw();
             debug!("main render");
-            app.render(&mut frame);
+            app.render(display, &mut frame);
             imgui_renderer.render(&mut frame, ui_frame).unwrap();
 
             frame.finish().unwrap();
@@ -190,6 +193,7 @@ impl Craft {
             mouse_buttons: [false; 5],
             keys: [false; VirtualKeyCode::Yen as usize],
 
+            line_renderer: LineRenderer::new(display),
             chunk_manager: ChunkManager::new(display, "save.sqlite".into()),
             tick: 0,
             player: Player::new(),
@@ -203,7 +207,10 @@ impl Craft {
                 ui.input_float(im_str!("far"), &mut SETTINGS_MUT.far).build();
                 ui.input_float(im_str!("near"), &mut SETTINGS_MUT.near).build();
                 ui.input_float(im_str!("mouse_sensitivity"), &mut SETTINGS_MUT.mouse_sensitivity).build();
-                ui.input_float(im_str!("move_speed"), &mut SETTINGS_MUT.move_speed).build();
+                ui.input_float(im_str!("move_speed"), &mut SETTINGS_MUT.move_speed).step(0.01).build();
+                ui.input_float(im_str!("reach_distance"), &mut SETTINGS_MUT.reach_distance).step(1.0).build();
+                ui.input_float(im_str!("raycast_step_size"), &mut SETTINGS_MUT.raycast_step_size).build();
+                ui.input_float(im_str!("raycast_max_distance"), &mut SETTINGS_MUT.raycast_max_distance).step(1.0).build();
             });
         }
 
@@ -231,18 +238,29 @@ impl Craft {
         self.tick += 1;
     }
 
-    fn render(&mut self, frame: &mut Frame) {
-        let screen_from_local = perspective(Deg(45.0f32), self.aspect_ratio, 1.0, 1000.0);
-        let local_from_world: Matrix4<f32> = Transform::look_at(
+    fn render(&mut self, display: &Display, frame: &mut Frame) {
+        let clip_from_view = perspective(Deg(45.0f32), self.aspect_ratio, 1.0, 1000.0);
+        let view_from_world: Matrix4<f32> = Transform::look_at(
             self.player.camera.pos,
             self.player.camera.pos + self.player.camera.view().normalize(),
             Vector3::unit_y(),
         );
-        let screen_from_world = screen_from_local * local_from_world ;
+        let clip_from_world = clip_from_view * view_from_world ;
 
         frame.clear_color_and_depth((0.0, 1.0, 1.0, 1.0), 1.0);
 
-        self.chunk_manager.render(frame, &screen_from_world);
+        self.chunk_manager.render(frame, &clip_from_world);
+
+        let casted = self.player.camera.raycast(
+            &mut self.chunk_manager, SETTINGS.raycast_max_distance,
+            SETTINGS.raycast_step_size, false
+        );
+        if let Some((pos, block)) = casted {
+            let pos = Point3 { x: pos.x as f32, y: pos.y as f32, z: pos.z as f32 };
+            self.draw_wireframe_cube(pos, display, frame, &clip_from_world);
+        }
+
+        self.draw_crosshair();
     }
 
     fn on(&mut self, display: &Display, event: Event) {
@@ -279,6 +297,24 @@ impl Craft {
                 WindowEvent::Resized(width, height) => {
                     self.width = width;
                     self.height = height;
+                }
+                WindowEvent::MouseInput { button: MouseButton::Left, state: ElementState::Pressed, .. } => {
+                    let casted = self.player.camera.raycast(
+                        &mut self.chunk_manager, SETTINGS.raycast_max_distance,
+                        SETTINGS.raycast_step_size, false
+                    );
+                    if let Some((pos, block)) = casted {
+                        self.chunk_manager.set_block(pos, Block::new(BlockType::Air));
+                    }
+                }
+                WindowEvent::MouseInput { button: MouseButton::Right, state: ElementState::Pressed, .. } => {
+                    let casted = self.player.camera.raycast(
+                        &mut self.chunk_manager, SETTINGS.raycast_max_distance,
+                        SETTINGS.raycast_step_size, true
+                    );
+                    if let Some((pos, block)) = casted {
+                        self.chunk_manager.set_block(pos, Block::new(BlockType::Stone));
+                    }
                 }
                 _ => {}
             },
@@ -348,5 +384,71 @@ impl Craft {
             //WindowEvent::MouseWheel {} => {}
             _ => {}
         }
+    }
+
+    fn draw_rect(id: &ImStr, centre_x: u32, centre_y: u32, width: u32, height: u32) {
+        use imgui::*;
+
+        let centre_x = centre_x as f32;
+        let centre_y = centre_y as f32;
+        let width = width as f32;
+        let height = height as f32;
+
+        let plain_window_flags: ImGuiWindowFlags = ImGuiWindowFlags_NoCollapse |
+            ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoScrollWithMouse |
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoTitleBar;
+
+        static STYLE_VARS: [StyleVar; 3] = [
+            StyleVar::WindowRounding(0.0),
+            StyleVar::WindowMinSize(ImVec2 { x: 0.0, y: 0.0 }),
+            StyleVar::WindowPadding(ImVec2 { x: 0.0, y: 0.0 })
+        ];
+
+        ui.with_color_var(ImGuiCol::WindowBg, ImVec4::new(0.4, 0.4, 0.4, 1.0), || {
+            ui.with_style_vars(&STYLE_VARS, || {
+                ui.window(id)
+                    .flags(plain_window_flags)
+                    .size((width, height), ImGuiSetCond_Always)
+                    .position((centre_x - width / 2.0, centre_y - height / 2.0), ImGuiSetCond_Always)
+                    .bg_alpha(0.8)
+                    .build(|| {});
+            })
+        })
+    }
+
+    fn draw_crosshair(&self) {
+        let centre_x = self.width / 2;
+        let centre_y = self.height / 2;
+
+        Self::draw_rect(im_str!("##1"), centre_x, centre_y, 32, 3);
+        Self::draw_rect(im_str!("##2"), centre_x, centre_y, 3, 32);
+    }
+
+    fn draw_wireframe_cube(&mut self, pos: Point3<f32>, display: &Display, frame: &mut Frame, clip_from_world: &Matrix4<f32>) {
+        const L: f32 = -0.005;
+        const R: f32 = 1.005;
+        static CUBE_WIREFRAME: [(Vector3, Vector3); 12] = [
+            (Vector3 { x: L, y: L, z: L }, Vector3 { x: L, y: L, z: R }),
+            (Vector3 { x: L, y: L, z: L }, Vector3 { x: L, y: R, z: L }),
+            (Vector3 { x: L, y: L, z: L }, Vector3 { x: R, y: L, z: L }),
+            (Vector3 { x: L, y: L, z: R }, Vector3 { x: R, y: L, z: R }),
+            (Vector3 { x: L, y: L, z: R }, Vector3 { x: L, y: R, z: R }),
+            (Vector3 { x: L, y: R, z: L }, Vector3 { x: R, y: R, z: L }),
+            (Vector3 { x: L, y: R, z: L }, Vector3 { x: L, y: R, z: R }),
+            (Vector3 { x: L, y: R, z: R }, Vector3 { x: R, y: R, z: R }),
+            (Vector3 { x: R, y: L, z: L }, Vector3 { x: R, y: R, z: L }),
+            (Vector3 { x: R, y: L, z: L }, Vector3 { x: R, y: L, z: R }),
+            (Vector3 { x: R, y: L, z: R }, Vector3 { x: R, y: R, z: R }),
+            (Vector3 { x: R, y: R, z: L }, Vector3 { x: R, y: R, z: R }),
+        ];
+
+        for &(a, b) in CUBE_WIREFRAME.iter() {
+            let start = pos + a;
+            let end = pos + b;
+            self.line_renderer.line3d(start, end, Color::new(0, 0, 0, 0));
+        }
+
+        self.line_renderer.render(display, frame, &clip_from_world, 2.0);
     }
 }

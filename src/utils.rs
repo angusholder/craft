@@ -27,6 +27,9 @@ pub struct Settings {
     pub move_speed: f32,
     pub near: f32,
     pub far: f32,
+    pub reach_distance: f32,
+    pub raycast_step_size: f32,
+    pub raycast_max_distance: f32,
 }
 
 pub static mut SETTINGS_MUT: Settings = Settings {
@@ -35,6 +38,9 @@ pub static mut SETTINGS_MUT: Settings = Settings {
     move_speed: 0.1,
     near: 1.0,
     far: 1000.0,
+    reach_distance: 5.0,
+    raycast_step_size: 0.01,
+    raycast_max_distance: 5.0,
 };
 
 pub struct SettingsWrapper;
